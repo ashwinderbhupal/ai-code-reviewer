@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useState } from "react";
 
 import { api, setToken } from "../api";
 import Logo from "../components/Logo";
@@ -12,29 +11,31 @@ interface LoginProps {
  * Login page.
  *
  * Two responsibilities:
- *   1. Render a "Continue with GitHub" button that kicks off the
- *      backend's /auth/github redirect flow.
- *   2. After GitHub redirects back via /auth/callback?token=..., this
- *      page extracts that token from the URL, stashes it, and sends the
- *      user to /dashboard.
+ *   1. If the URL contains ?token=... (GitHub OAuth callback landed here),
+ *      stash the JWT in localStorage and hard-redirect to /dashboard
+ *      BEFORE we render anything. The hard redirect is intentional --
+ *      a react-router navigate would race the protected-route guard,
+ *      which still sees user=null and bounces us back to /login.
+ *      Reloading the page forces App to remount, re-runs refreshUser()
+ *      against a populated localStorage, and the guard sees a real user.
+ *   2. Otherwise, render the "Continue with GitHub" button that kicks
+ *      off the backend's /auth/github redirect flow.
  */
-export default function Login({ onAuthenticated }: LoginProps): JSX.Element {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+export default function Login(_props: LoginProps): JSX.Element | null {
+  // Hooks must always run in the same order, so call useState first.
   const [working, setWorking] = useState(false);
 
-  useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) return;
-
-    setWorking(true);
-    setToken(token);
-    Promise.resolve(onAuthenticated()).finally(() => {
-      navigate("/dashboard", { replace: true });
-    });
-  }, [searchParams, navigate, onAuthenticated]);
+  if (typeof window !== "undefined") {
+    const tokenInUrl = new URLSearchParams(window.location.search).get("token");
+    if (tokenInUrl) {
+      setToken(tokenInUrl);
+      window.location.href = "/dashboard";
+      return null;
+    }
+  }
 
   const handleLogin = (): void => {
+    setWorking(true);
     window.location.href = api.loginUrl();
   };
 
